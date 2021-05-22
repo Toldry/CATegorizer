@@ -1,11 +1,18 @@
+import os
+import shutil
+import tempfile
 import re
 import itertools
 import csv
 import praw
-import prawcore
+# import prawcore
 import logging
-import numpy as np
+# import numpy as np
 # import pandas as pd
+
+
+FILTERED_CAT_SUBS_FILENAME = 'filtered_cat_subs.csv'
+SUBMISSIONS_FILENAME = 'submission.csv'
 
 def connect_to_reddit():
     global reddit
@@ -29,7 +36,7 @@ def connect_to_reddit():
 
 
 def get_cat_subreddits():
-    #built from https://www.reddit.com/r/Catsubs/wiki/index
+    #source: https://www.reddit.com/r/Catsubs/wiki/index
     cat_subreddits_path = 'cat_subreddits.csv' 
     cat_subreddits = list(itertools.chain.from_iterable(csv.reader(open(cat_subreddits_path, "r"), delimiter='\n')))
     return cat_subreddits
@@ -37,11 +44,11 @@ def get_cat_subreddits():
 
 def get_top_submissions_of_subreddit(subreddit_name, num_submissions=5000):
     global reddit
-    return list(reddit.subreddit(subreddit_name).top(time_filter='all', limit=num_submissions))
+    return reddit.subreddit(subreddit_name).top(time_filter='all', limit=num_submissions)
 
 def is_image_submission(submission):
     image_suffixes = ['png', 'jpg', 'jpeg']
-    image_rx = re.compile('|'.join([f'{str}$' for str in image_suffixes]))
+    image_rx = re.compile('.*\.(' + '|'.join([f'{str}' for str in image_suffixes]) + ')$')
     return image_rx.match(submission.url) is not None
 
 def subreddit_filter(subreddit_name):
@@ -59,11 +66,77 @@ def create_filtered_cat_subreddits_csv():
 
     connect_to_reddit()
     filtered_cat_subreddits = [sub for sub in cat_subreddits if subreddit_filter(sub)]
-    f = open('filtered_cat_subs.csv', 'w')
-    f.write('\n'.join(filtered_cat_subreddits))
+
+    with open(FILTERED_CAT_SUBS_FILENAME, 'w', encoding='utf-8') as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=['subreddit_name', 'finished_scraping'])
+        writer.writeheader()
+        for subr in filtered_cat_subreddits:
+            writer.writerow({'subreddit_name': subr, 'finished_scraping': False})
+
+def read_filtered_cat_subreddits_csv():
+    with open(FILTERED_CAT_SUBS_FILENAME, mode='r') as csv_file:
+        csv_reader = csv.DictReader(csv_file)
+        all_rows = list(csv_reader)
+        return all_rows
+
+def update_scraped(subreddit):
+    temp = tempfile.NamedTemporaryFile(mode='w', delete=False)
+
+    fields = ['subreddit_name', 'finished_scraping']
+
+    with open(FILTERED_CAT_SUBS_FILENAME, 'r') as csvfile, temp:
+        reader = csv.DictReader(csvfile, fieldnames=fields)
+        writer = csv.DictWriter(temp, fieldnames=fields)
+        for row in reader:
+            if row['subreddit_name'] == subreddit:
+                logging.info('updating row ', row['subreddit_name'])
+                row['finished_scraping'] = True
+            writer.writerow(row)
+
+    shutil.move(temp.name, FILTERED_CAT_SUBS_FILENAME)
+
+
+def create_csv_if_it_doesnt_exist(filename, fieldnames):
+    if os.path.isfile(filename): 
+        return
+    with open(filename, 'w', encoding='utf-8') as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writeheader()
+    
+
+
+def create_submissions_file():
+    attributes_to_save = ['id', 'url', 'permalink','score', 'title', 'total_awards_received','ups','upvote_ratio','is_original_content', 'gilded', 'num_comments', 'num_crossposts', 'num_duplicates', 'over_18']
+    other_attributes = ['subreddit_name']
+    fieldnames = other_attributes + attributes_to_save
+
+    scraped_subreddits_table = read_filtered_cat_subreddits_csv()
+
+    create_csv_if_it_doesnt_exist(SUBMISSIONS_FILENAME, fieldnames)
+
+    with open(SUBMISSIONS_FILENAME, 'a+', encoding='utf-8') as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        for sub_row in scraped_subreddits_table:
+            subreddit_name = sub_row['subreddit_name']
+            scraped = sub_row['finished_scraping'] == "True"
+            if scraped:
+                continue
+            submissions = get_top_submissions_of_subreddit(subreddit_name)
+            for s in submissions:
+                if not is_image_submission(s):
+                    continue
+                submission_obj = {}
+                submission_obj['subreddit_name'] = subreddit_name
+                for attr in attributes_to_save:
+                    submission_obj[attr] = str(getattr(s, attr))
+                writer.writerow(submission_obj)
+            update_scraped(subreddit_name)
+
 
 def main():
-    create_filtered_cat_subreddits_csv()
+    connect_to_reddit()
+    # create_filtered_cat_subreddits_csv()
+    create_submissions_file()
 
 if __name__ == '__main__':
     main()
