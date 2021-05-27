@@ -6,9 +6,9 @@ import itertools
 import csv
 import praw
 # import prawcore
-import logging
-# import numpy as np
-# import pandas as pd
+import requests
+import numpy as np
+import pandas as pd
 
 
 FILTERED_CAT_SUBS_FILENAME = 'filtered_cat_subs.csv'
@@ -17,7 +17,7 @@ SUBMISSIONS_FILENAME = 'submission.csv'
 def connect_to_reddit():
     global reddit
     # if reddit is not None:
-    #     logging.info('reddit object already instantiated')
+    #     print('reddit object already instantiated')
     #     return
 
     username = 'CATegorizer_bot'
@@ -27,7 +27,7 @@ def connect_to_reddit():
     useragent = f'{clientname}/{version} by /u/{developername}'
     password, app_client_id, app_client_secret = open('.credentials', 'r').read().splitlines()
 
-    logging.info(f'Connecting to reddit via praw to instantiate connection instance. username={username}')
+    print(f'Connecting to reddit via praw to instantiate connection instance. username={username}')
     reddit = praw.Reddit(client_id=app_client_id,
                         client_secret=app_client_secret,
                         user_agent=useragent,
@@ -89,7 +89,7 @@ def update_scraped(subreddit):
         writer = csv.DictWriter(temp, fieldnames=fields)
         for row in reader:
             if row['subreddit_name'] == subreddit:
-                logging.info('updating row ', row['subreddit_name'])
+                print('updating row ', row['subreddit_name'])
                 row['finished_scraping'] = True
             writer.writerow(row)
 
